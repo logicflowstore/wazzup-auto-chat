@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -7,8 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { MessageSquare, Settings, Send, LogOut } from 'lucide-react';
+import { MessageSquare, Settings, Send, LogOut, Inbox } from 'lucide-react';
 import ChatInterface from '@/components/ChatInterface';
+import InboxInterface from '@/components/InboxInterface';
 
 interface Profile {
   id: string;
@@ -33,7 +33,7 @@ const Dashboard = () => {
   const { toast } = useToast();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('chat');
+  const [activeTab, setActiveTab] = useState('inbox');
   const [whatsappConfig, setWhatsappConfig] = useState({
     accessToken: '',
     phoneNumberId: '',
@@ -125,7 +125,7 @@ const Dashboard = () => {
 
       if (dbError) throw dbError;
 
-      // Send via WhatsApp API (this would be done via edge function in production)
+      // Send via WhatsApp API
       const response = await fetch(`https://graph.facebook.com/v17.0/${whatsappConfig.phoneNumberId}/messages`, {
         method: 'POST',
         headers: {
@@ -193,13 +193,22 @@ const Dashboard = () => {
         
         <nav className="space-y-2">
           <button
+            onClick={() => setActiveTab('inbox')}
+            className={`w-full flex items-center px-4 py-2 rounded-lg font-medium ${
+              activeTab === 'inbox' ? 'text-green-600 bg-green-50' : 'text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Inbox className="w-5 h-5 mr-3" />
+            Inbox
+          </button>
+          <button
             onClick={() => setActiveTab('chat')}
             className={`w-full flex items-center px-4 py-2 rounded-lg font-medium ${
               activeTab === 'chat' ? 'text-green-600 bg-green-50' : 'text-gray-700 hover:bg-gray-50'
             }`}
           >
             <MessageSquare className="w-5 h-5 mr-3" />
-            Chat Interface
+            Live Chat
           </button>
           <button
             onClick={() => setActiveTab('settings')}
@@ -233,7 +242,8 @@ const Dashboard = () => {
       <div className="flex-1 flex flex-col">
         <div className="bg-white border-b border-gray-200 p-4">
           <h2 className="text-2xl font-bold text-gray-900">
-            {activeTab === 'chat' && 'Chat Interface'}
+            {activeTab === 'inbox' && 'Inbox'}
+            {activeTab === 'chat' && 'Live Chat'}
             {activeTab === 'settings' && 'WhatsApp Configuration'}
             {activeTab === 'send' && 'Send WhatsApp Message'}
           </h2>
@@ -241,6 +251,12 @@ const Dashboard = () => {
         </div>
 
         <div className="flex-1 p-6">
+          {activeTab === 'inbox' && (
+            <div className="h-full">
+              <InboxInterface />
+            </div>
+          )}
+
           {activeTab === 'chat' && (
             <div className="h-full">
               <ChatInterface />
