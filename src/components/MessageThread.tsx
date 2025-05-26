@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -28,21 +28,31 @@ interface Message {
 
 interface MessageThreadProps {
   contact: Contact | null;
+  onContactUpdate?: () => void;
 }
 
-const MessageThread = ({ contact }: MessageThreadProps) => {
+const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
   const { user } = useAuth();
   const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (contact) {
       fetchMessages();
     }
   }, [contact]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   const fetchMessages = async () => {
     if (!contact) return;
@@ -88,17 +98,23 @@ const MessageThread = ({ contact }: MessageThreadProps) => {
       }
 
       // Store message in database first
-      const { error: dbError } = await supabase
+      const { data: messageData, error: dbError } = await supabase
         .from('whatsapp_messages')
         .insert({
           user_id: user?.id,
           contact_id: contact.id,
           content: newMessage,
           direction: 'outbound',
-          status: 'sending'
-        });
+          status: 'sending',
+          timestamp: new Date().toISOString()
+        })
+        .select()
+        .single();
 
       if (dbError) throw dbError;
+
+      // Update messages immediately with the new message
+      setMessages(prev => [...prev, messageData]);
 
       // Send via WhatsApp API
       const response = await fetch(`https://graph.facebook.com/v17.0/${profile.whatsapp_phone_number_id}/messages`, {
@@ -115,8 +131,20 @@ const MessageThread = ({ contact }: MessageThreadProps) => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to send WhatsApp message');
+        const errorData = await response.json();
+        throw new Error(`WhatsApp API Error: ${errorData.error?.message || 'Failed to send message'}`);
       }
+
+      const responseData = await response.json();
+      
+      // Update message status to sent
+      await supabase
+        .from('whatsapp_messages')
+        .update({ 
+          status: 'sent',
+          message_id: responseData.messages?.[0]?.id
+        })
+        .eq('id', messageData.id);
 
       toast({
         title: "Message Sent",
@@ -124,8 +152,16 @@ const MessageThread = ({ contact }: MessageThreadProps) => {
       });
 
       setNewMessage('');
-      fetchMessages(); // Refresh messages
+      
+      // Refresh messages to get updated status
+      fetchMessages();
+      
+      // Update contact list if callback provided
+      if (onContactUpdate) {
+        onContactUpdate();
+      }
     } catch (error: any) {
+      console.error('Send message error:', error);
       toast({
         title: "Error",
         description: error.message,
@@ -133,6 +169,13 @@ const MessageThread = ({ contact }: MessageThreadProps) => {
       });
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
     }
   };
 
@@ -172,7 +215,7 @@ const MessageThread = ({ contact }: MessageThreadProps) => {
       
       <CardContent className="flex-1 flex flex-col p-0">
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-96">
           {loading ? (
             <div className="text-center text-gray-500">Loading messages...</div>
           ) : messages.length === 0 ? (
@@ -200,7 +243,9 @@ const MessageThread = ({ contact }: MessageThreadProps) => {
                     {message.timestamp ? new Date(message.timestamp).toLocaleTimeString() : ''}
                     {message.direction === 'outbound' && (
                       <span className="ml-1">
-                        {message.status === 'sending' ? '⏳' : '✓'}
+                        {message.status === 'sending' ? '⏳' : 
+                         message.status === 'sent' ? '✓' : 
+                         message.status === 'delivered' ? '✓✓' : '✓'}
                       </span>
                     )}
                   </p>
@@ -208,6 +253,7 @@ const MessageThread = ({ contact }: MessageThreadProps) => {
               </div>
             ))
           )}
+          <div ref={messagesEndRef} />
         </div>
 
         {/* Message Input */}
@@ -217,7 +263,7 @@ const MessageThread = ({ contact }: MessageThreadProps) => {
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               placeholder="Type a message..."
-              onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+              onKeyPress={handleKeyPress}
               disabled={sending}
             />
             <Button

@@ -5,7 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { MessageSquare, Phone } from 'lucide-react';
+import { MessageSquare, Phone, RefreshCw } from 'lucide-react';
 
 interface Contact {
   id: string;
@@ -18,9 +18,10 @@ interface Contact {
 interface ContactsListProps {
   onSelectContact: (contact: Contact) => void;
   selectedContactId: string | null;
+  refreshTrigger?: number;
 }
 
-const ContactsList = ({ onSelectContact, selectedContactId }: ContactsListProps) => {
+const ContactsList = ({ onSelectContact, selectedContactId, refreshTrigger }: ContactsListProps) => {
   const { user } = useAuth();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,10 +30,11 @@ const ContactsList = ({ onSelectContact, selectedContactId }: ContactsListProps)
     if (user) {
       fetchContacts();
     }
-  }, [user]);
+  }, [user, refreshTrigger]);
 
   const fetchContacts = async () => {
     try {
+      setLoading(true);
       const { data, error } = await supabase
         .from('whatsapp_contacts')
         .select('*')
@@ -67,9 +69,14 @@ const ContactsList = ({ onSelectContact, selectedContactId }: ContactsListProps)
   return (
     <Card className="h-full">
       <CardHeader>
-        <CardTitle className="flex items-center">
-          <MessageSquare className="w-5 h-5 mr-2" />
-          Contacts ({contacts.length})
+        <CardTitle className="flex items-center justify-between">
+          <div className="flex items-center">
+            <MessageSquare className="w-5 h-5 mr-2" />
+            Contacts ({contacts.length})
+          </div>
+          <Button variant="ghost" size="sm" onClick={fetchContacts}>
+            <RefreshCw className="w-4 h-4" />
+          </Button>
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
@@ -78,7 +85,7 @@ const ContactsList = ({ onSelectContact, selectedContactId }: ContactsListProps)
             <div className="p-4 text-center text-gray-500">
               <MessageSquare className="w-12 h-12 mx-auto mb-2 text-gray-300" />
               <p>No contacts yet</p>
-              <p className="text-sm">Contacts will appear here when you receive messages</p>
+              <p className="text-sm">Add contacts or import from CSV</p>
             </div>
           ) : (
             contacts.map((contact) => (
