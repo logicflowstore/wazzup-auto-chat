@@ -9,7 +9,119 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      profiles: {
+        Row: {
+          created_at: string | null
+          full_name: string | null
+          id: string
+          phone_number: string | null
+          updated_at: string | null
+          whatsapp_access_token: string | null
+          whatsapp_business_account_id: string | null
+          whatsapp_phone_number_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          full_name?: string | null
+          id: string
+          phone_number?: string | null
+          updated_at?: string | null
+          whatsapp_access_token?: string | null
+          whatsapp_business_account_id?: string | null
+          whatsapp_phone_number_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          full_name?: string | null
+          id?: string
+          phone_number?: string | null
+          updated_at?: string | null
+          whatsapp_access_token?: string | null
+          whatsapp_business_account_id?: string | null
+          whatsapp_phone_number_id?: string | null
+        }
+        Relationships: []
+      }
+      whatsapp_contacts: {
+        Row: {
+          created_at: string | null
+          id: string
+          name: string | null
+          phone_number: string | null
+          profile_picture_url: string | null
+          updated_at: string | null
+          user_id: string
+          whatsapp_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          name?: string | null
+          phone_number?: string | null
+          profile_picture_url?: string | null
+          updated_at?: string | null
+          user_id: string
+          whatsapp_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          name?: string | null
+          phone_number?: string | null
+          profile_picture_url?: string | null
+          updated_at?: string | null
+          user_id?: string
+          whatsapp_id?: string
+        }
+        Relationships: []
+      }
+      whatsapp_messages: {
+        Row: {
+          contact_id: string | null
+          content: string | null
+          created_at: string | null
+          direction: string | null
+          id: string
+          message_id: string | null
+          message_type: string | null
+          status: string | null
+          timestamp: string | null
+          user_id: string
+        }
+        Insert: {
+          contact_id?: string | null
+          content?: string | null
+          created_at?: string | null
+          direction?: string | null
+          id?: string
+          message_id?: string | null
+          message_type?: string | null
+          status?: string | null
+          timestamp?: string | null
+          user_id: string
+        }
+        Update: {
+          contact_id?: string | null
+          content?: string | null
+          created_at?: string | null
+          direction?: string | null
+          id?: string
+          message_id?: string | null
+          message_type?: string | null
+          status?: string | null
+          timestamp?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_messages_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
