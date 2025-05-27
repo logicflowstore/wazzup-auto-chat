@@ -24,6 +24,7 @@ interface Message {
   status: string | null;
   timestamp: string | null;
   created_at: string | null;
+  message_id: string | null;
 }
 
 interface MessageThreadProps {
@@ -43,6 +44,28 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
   useEffect(() => {
     if (contact) {
       fetchMessages();
+      
+      // Set up real-time subscription for messages
+      const channel = supabase
+        .channel('messages')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'whatsapp_messages',
+            filter: `contact_id=eq.${contact.id}`
+          },
+          (payload) => {
+            console.log('Real-time message update:', payload);
+            fetchMessages(); // Refresh messages when changes occur
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
     }
   }, [contact]);
 
@@ -69,6 +92,11 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
       setMessages(data || []);
     } catch (error) {
       console.error('Error fetching messages:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load messages",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
@@ -90,7 +118,7 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
 
       if (profileError) {
         console.error('Profile fetch error:', profileError);
-        throw profileError;
+        throw new Error('Failed to fetch user profile');
       }
 
       console.log('Profile data:', { 
@@ -101,24 +129,25 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
       if (!profile?.whatsapp_access_token || !profile?.whatsapp_phone_number_id) {
         toast({
           title: "WhatsApp Not Configured",
-          description: "Please configure your WhatsApp API settings first.",
+          description: "Please configure your WhatsApp API settings in the WhatsApp Config tab.",
           variant: "destructive",
         });
         return;
       }
 
       // Format phone number properly for WhatsApp API
-      let formattedPhone = contact.phone_number;
+      let formattedPhone = contact.whatsapp_id || contact.phone_number;
       if (formattedPhone) {
-        // Remove all non-digit characters
+        // Remove all non-digit characters and any leading + sign
         formattedPhone = formattedPhone.replace(/\D/g, '');
-        // Ensure it starts with country code (91 for India)
+        
+        // Ensure it has country code - default to India (91) if 10 digits
         if (!formattedPhone.startsWith('91') && formattedPhone.length === 10) {
           formattedPhone = '91' + formattedPhone;
         }
       }
 
-      console.log('Formatted phone:', formattedPhone);
+      console.log('Sending to phone:', formattedPhone);
       console.log('Message content:', newMessage);
 
       // Store message in database first
@@ -130,23 +159,25 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
           content: newMessage,
           direction: 'outbound',
           status: 'sending',
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          message_type: 'text'
         })
         .select()
         .single();
 
       if (dbError) {
         console.error('Database error:', dbError);
-        throw dbError;
+        throw new Error('Failed to store message in database');
       }
 
       console.log('Message stored in database:', messageData);
 
-      // Update messages immediately with the new message
+      // Update UI immediately
       setMessages(prev => [...prev, messageData]);
+      setNewMessage('');
 
       // Prepare WhatsApp API request
-      const whatsappApiUrl = `https://graph.facebook.com/v17.0/${profile.whatsapp_phone_number_id}/messages`;
+      const whatsappApiUrl = `https://graph.facebook.com/v18.0/${profile.whatsapp_phone_number_id}/messages`;
       const requestBody = {
         messaging_product: 'whatsapp',
         to: formattedPhone,
@@ -154,7 +185,8 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
       };
 
       console.log('WhatsApp API URL:', whatsappApiUrl);
-      console.log('Request body:', requestBody);
+      console.log('Request body:', JSON.stringify(requestBody, null, 2));
+      console.log('Access token (first 10 chars):', profile.whatsapp_access_token.substring(0, 10) + '...');
 
       // Send via WhatsApp API
       const response = await fetch(whatsappApiUrl, {
@@ -167,9 +199,18 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
       });
 
       console.log('WhatsApp API response status:', response.status);
+      
+      const responseText = await response.text();
+      console.log('WhatsApp API response text:', responseText);
 
       if (!response.ok) {
-        const errorData = await response.json();
+        let errorData;
+        try {
+          errorData = JSON.parse(responseText);
+        } catch {
+          errorData = { error: { message: responseText } };
+        }
+        
         console.error('WhatsApp API error response:', errorData);
         
         // Update message status to failed
@@ -178,10 +219,15 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
           .update({ status: 'failed' })
           .eq('id', messageData.id);
 
-        throw new Error(`WhatsApp API Error: ${errorData.error?.message || 'Failed to send message'}`);
+        // Show specific error message
+        const errorMessage = errorData.error?.error_user_msg || 
+                           errorData.error?.message || 
+                           `API Error (${response.status}): Failed to send message`;
+        
+        throw new Error(errorMessage);
       }
 
-      const responseData = await response.json();
+      const responseData = JSON.parse(responseText);
       console.log('WhatsApp API success response:', responseData);
       
       // Update message status to sent
@@ -195,13 +241,8 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
 
       toast({
         title: "Message Sent",
-        description: "Your message has been sent successfully.",
+        description: "Your message has been sent successfully via WhatsApp.",
       });
-
-      setNewMessage('');
-      
-      // Refresh messages to get updated status
-      fetchMessages();
       
       // Update contact list if callback provided
       if (onContactUpdate) {
@@ -210,8 +251,8 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
     } catch (error: any) {
       console.error('Send message error:', error);
       toast({
-        title: "Error",
-        description: error.message || "Failed to send message",
+        title: "Message Failed",
+        description: error.message || "Failed to send message. Please check your WhatsApp configuration.",
         variant: "destructive",
       });
     } finally {
@@ -293,6 +334,7 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
                         {message.status === 'sending' ? '⏳' : 
                          message.status === 'sent' ? '✓' : 
                          message.status === 'delivered' ? '✓✓' : 
+                         message.status === 'read' ? '✓✓' :
                          message.status === 'failed' ? '❌' : '✓'}
                       </span>
                     )}

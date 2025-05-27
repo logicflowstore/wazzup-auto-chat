@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { MessageSquare, Settings, Send, LogOut, Inbox } from 'lucide-react';
+import { MessageSquare, Settings, Send, LogOut, Inbox, Copy, ExternalLink } from 'lucide-react';
 import ChatInterface from '@/components/ChatInterface';
 import InboxInterface from '@/components/InboxInterface';
 
@@ -41,6 +41,7 @@ const Dashboard = () => {
   });
   const [messageToSend, setMessageToSend] = useState('');
   const [recipientPhone, setRecipientPhone] = useState('');
+  const webhookUrl = 'https://qionpicrrboyktnsilgg.supabase.co/functions/v1/whatsapp-webhook';
 
   useEffect(() => {
     if (user) {
@@ -70,6 +71,22 @@ const Dashboard = () => {
       console.error('Error fetching profile:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({
+        title: "Copied!",
+        description: "URL copied to clipboard",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to copy to clipboard",
+        variant: "destructive",
+      });
     }
   };
 
@@ -264,44 +281,136 @@ const Dashboard = () => {
           )}
 
           {activeTab === 'settings' && (
-            <Card className="max-w-2xl">
-              <CardHeader>
-                <CardTitle>WhatsApp Business API Configuration</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="accessToken">Access Token</Label>
-                  <Input
-                    id="accessToken"
-                    type="password"
-                    value={whatsappConfig.accessToken}
-                    onChange={(e) => setWhatsappConfig({...whatsappConfig, accessToken: e.target.value})}
-                    placeholder="Your WhatsApp Business API Access Token"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="phoneNumberId">Phone Number ID</Label>
-                  <Input
-                    id="phoneNumberId"
-                    value={whatsappConfig.phoneNumberId}
-                    onChange={(e) => setWhatsappConfig({...whatsappConfig, phoneNumberId: e.target.value})}
-                    placeholder="Your WhatsApp Phone Number ID"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="businessAccountId">Business Account ID</Label>
-                  <Input
-                    id="businessAccountId"
-                    value={whatsappConfig.businessAccountId}
-                    onChange={(e) => setWhatsappConfig({...whatsappConfig, businessAccountId: e.target.value})}
-                    placeholder="Your WhatsApp Business Account ID"
-                  />
-                </div>
-                <Button onClick={updateWhatsAppConfig} className="w-full">
-                  Save Configuration
-                </Button>
-              </CardContent>
-            </Card>
+            <div className="space-y-6">
+              <Card className="max-w-2xl">
+                <CardHeader>
+                  <CardTitle>WhatsApp Business API Configuration</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label htmlFor="accessToken">Access Token</Label>
+                    <Input
+                      id="accessToken"
+                      type="password"
+                      value={whatsappConfig.accessToken}
+                      onChange={(e) => setWhatsappConfig({...whatsappConfig, accessToken: e.target.value})}
+                      placeholder="Your WhatsApp Business API Access Token"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="phoneNumberId">Phone Number ID</Label>
+                    <Input
+                      id="phoneNumberId"
+                      value={whatsappConfig.phoneNumberId}
+                      onChange={(e) => setWhatsappConfig({...whatsappConfig, phoneNumberId: e.target.value})}
+                      placeholder="Your WhatsApp Phone Number ID"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="businessAccountId">Business Account ID</Label>
+                    <Input
+                      id="businessAccountId"
+                      value={whatsappConfig.businessAccountId}
+                      onChange={(e) => setWhatsappConfig({...whatsappConfig, businessAccountId: e.target.value})}
+                      placeholder="Your WhatsApp Business Account ID"
+                    />
+                  </div>
+                  <Button onClick={updateWhatsAppConfig} className="w-full">
+                    Save Configuration
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card className="max-w-2xl">
+                <CardHeader>
+                  <CardTitle>Webhook Configuration</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label>Webhook URL</Label>
+                    <div className="flex items-center space-x-2">
+                      <Input
+                        value={webhookUrl}
+                        readOnly
+                        className="flex-1"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => copyToClipboard(webhookUrl)}
+                      >
+                        <Copy className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Use this URL in your Facebook App webhook configuration
+                    </p>
+                  </div>
+                  
+                  <div>
+                    <Label>Verify Token</Label>
+                    <div className="flex items-center space-x-2">
+                      <Input
+                        value="whatsapp_webhook_verify_token"
+                        readOnly
+                        className="flex-1"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => copyToClipboard('whatsapp_webhook_verify_token')}
+                      >
+                        <Copy className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Use this verify token in your Facebook App webhook settings
+                    </p>
+                  </div>
+
+                  <div>
+                    <Label>Callback URL for Facebook Login</Label>
+                    <div className="flex items-center space-x-2">
+                      <Input
+                        value="https://qionpicrrboyktnsilgg.supabase.co/auth/v1/callback"
+                        readOnly
+                        className="flex-1"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => copyToClipboard('https://qionpicrrboyktnsilgg.supabase.co/auth/v1/callback')}
+                      >
+                        <Copy className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Add this as a redirect URI in your Facebook App OAuth settings
+                    </p>
+                  </div>
+
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <h4 className="font-medium text-blue-900 mb-2">Setup Instructions</h4>
+                    <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
+                      <li>Go to your Facebook App Dashboard</li>
+                      <li>Add the webhook URL and verify token</li>
+                      <li>Subscribe to 'messages' webhook fields</li>
+                      <li>Add the callback URL to OAuth redirect URIs</li>
+                      <li>Test your configuration</li>
+                    </ol>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-3"
+                      onClick={() => window.open('https://developers.facebook.com/apps/', '_blank')}
+                    >
+                      <ExternalLink className="w-4 h-4 mr-2" />
+                      Open Facebook Developer Console
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           )}
 
           {activeTab === 'send' && (
