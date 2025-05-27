@@ -79,6 +79,8 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
 
     setSending(true);
     try {
+      console.log('Starting message send process...');
+      
       // Get user's WhatsApp configuration
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
@@ -86,7 +88,15 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
         .eq('id', user?.id)
         .single();
 
-      if (profileError) throw profileError;
+      if (profileError) {
+        console.error('Profile fetch error:', profileError);
+        throw profileError;
+      }
+
+      console.log('Profile data:', { 
+        hasAccessToken: !!profile?.whatsapp_access_token, 
+        hasPhoneNumberId: !!profile?.whatsapp_phone_number_id 
+      });
 
       if (!profile?.whatsapp_access_token || !profile?.whatsapp_phone_number_id) {
         toast({
@@ -96,6 +106,20 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
         });
         return;
       }
+
+      // Format phone number properly for WhatsApp API
+      let formattedPhone = contact.phone_number;
+      if (formattedPhone) {
+        // Remove all non-digit characters
+        formattedPhone = formattedPhone.replace(/\D/g, '');
+        // Ensure it starts with country code (91 for India)
+        if (!formattedPhone.startsWith('91') && formattedPhone.length === 10) {
+          formattedPhone = '91' + formattedPhone;
+        }
+      }
+
+      console.log('Formatted phone:', formattedPhone);
+      console.log('Message content:', newMessage);
 
       // Store message in database first
       const { data: messageData, error: dbError } = await supabase
@@ -111,31 +135,54 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
         .select()
         .single();
 
-      if (dbError) throw dbError;
+      if (dbError) {
+        console.error('Database error:', dbError);
+        throw dbError;
+      }
+
+      console.log('Message stored in database:', messageData);
 
       // Update messages immediately with the new message
       setMessages(prev => [...prev, messageData]);
 
+      // Prepare WhatsApp API request
+      const whatsappApiUrl = `https://graph.facebook.com/v17.0/${profile.whatsapp_phone_number_id}/messages`;
+      const requestBody = {
+        messaging_product: 'whatsapp',
+        to: formattedPhone,
+        text: { body: newMessage }
+      };
+
+      console.log('WhatsApp API URL:', whatsappApiUrl);
+      console.log('Request body:', requestBody);
+
       // Send via WhatsApp API
-      const response = await fetch(`https://graph.facebook.com/v17.0/${profile.whatsapp_phone_number_id}/messages`, {
+      const response = await fetch(whatsappApiUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${profile.whatsapp_access_token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          to: contact.phone_number,
-          text: { body: newMessage }
-        })
+        body: JSON.stringify(requestBody)
       });
+
+      console.log('WhatsApp API response status:', response.status);
 
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('WhatsApp API error response:', errorData);
+        
+        // Update message status to failed
+        await supabase
+          .from('whatsapp_messages')
+          .update({ status: 'failed' })
+          .eq('id', messageData.id);
+
         throw new Error(`WhatsApp API Error: ${errorData.error?.message || 'Failed to send message'}`);
       }
 
       const responseData = await response.json();
+      console.log('WhatsApp API success response:', responseData);
       
       // Update message status to sent
       await supabase
@@ -164,7 +211,7 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
       console.error('Send message error:', error);
       toast({
         title: "Error",
-        description: error.message,
+        description: error.message || "Failed to send message",
         variant: "destructive",
       });
     } finally {
@@ -245,7 +292,8 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
                       <span className="ml-1">
                         {message.status === 'sending' ? '⏳' : 
                          message.status === 'sent' ? '✓' : 
-                         message.status === 'delivered' ? '✓✓' : '✓'}
+                         message.status === 'delivered' ? '✓✓' : 
+                         message.status === 'failed' ? '❌' : '✓'}
                       </span>
                     )}
                   </p>
