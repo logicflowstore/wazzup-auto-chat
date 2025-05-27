@@ -28,7 +28,6 @@ serve(async (req) => {
       
       console.log('Webhook verification:', { mode, token, challenge })
       
-      // You should set a verify token in your Facebook app settings
       const VERIFY_TOKEN = 'whatsapp_webhook_verify_token'
       
       if (mode === 'subscribe' && token === VERIFY_TOKEN) {
@@ -95,11 +94,40 @@ async function handleIncomingMessage(supabaseClient: any, message: any, value: a
     const phoneNumber = message.from
     const messageContent = message.text?.body || message.type
     
+    // Find the user based on the phone number ID from the webhook metadata
+    const phoneNumberId = value.metadata?.phone_number_id
+    console.log('Looking for user with phone_number_id:', phoneNumberId)
+    
+    if (!phoneNumberId) {
+      console.error('No phone_number_id found in webhook metadata')
+      return
+    }
+
+    // Find user by their WhatsApp phone number ID
+    let { data: userProfile, error: userError } = await supabaseClient
+      .from('profiles')
+      .select('*')
+      .eq('whatsapp_phone_number_id', phoneNumberId)
+      .single()
+    
+    if (userError) {
+      console.error('Error finding user by phone_number_id:', userError)
+      return
+    }
+
+    if (!userProfile) {
+      console.error('No user found with phone_number_id:', phoneNumberId)
+      return
+    }
+
+    console.log('Found user profile:', userProfile.id)
+    
     // Find or create contact
     let { data: contact, error: contactError } = await supabaseClient
       .from('whatsapp_contacts')
       .select('*')
       .eq('whatsapp_id', phoneNumber)
+      .eq('user_id', userProfile.id)
       .single()
     
     if (contactError && contactError.code === 'PGRST116') {
@@ -107,6 +135,7 @@ async function handleIncomingMessage(supabaseClient: any, message: any, value: a
       const { data: newContact, error: createError } = await supabaseClient
         .from('whatsapp_contacts')
         .insert({
+          user_id: userProfile.id,
           whatsapp_id: phoneNumber,
           phone_number: '+' + phoneNumber,
           name: phoneNumber // Will be updated when user sets a name
@@ -119,6 +148,7 @@ async function handleIncomingMessage(supabaseClient: any, message: any, value: a
         return
       }
       contact = newContact
+      console.log('Created new contact:', contact.id)
     } else if (contactError) {
       console.error('Error finding contact:', contactError)
       return
@@ -129,7 +159,7 @@ async function handleIncomingMessage(supabaseClient: any, message: any, value: a
       .from('whatsapp_messages')
       .insert({
         contact_id: contact.id,
-        user_id: contact.user_id,
+        user_id: userProfile.id,
         message_id: message.id,
         content: messageContent,
         direction: 'inbound',
@@ -141,7 +171,7 @@ async function handleIncomingMessage(supabaseClient: any, message: any, value: a
     if (messageError) {
       console.error('Error storing message:', messageError)
     } else {
-      console.log('Message stored successfully')
+      console.log('Message stored successfully for user:', userProfile.id)
     }
   } catch (error) {
     console.error('Error handling incoming message:', error)
