@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -176,8 +175,8 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
       setMessages(prev => [...prev, messageData]);
       setNewMessage('');
 
-      // Prepare WhatsApp API request
-      const whatsappApiUrl = `https://graph.facebook.com/v18.0/${profile.whatsapp_phone_number_id}/messages`;
+      // Prepare WhatsApp API request - Use the latest API version
+      const whatsappApiUrl = `https://graph.facebook.com/v21.0/${profile.whatsapp_phone_number_id}/messages`;
       const requestBody = {
         messaging_product: 'whatsapp',
         to: formattedPhone,
@@ -219,10 +218,25 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
           .update({ status: 'failed' })
           .eq('id', messageData.id);
 
-        // Show specific error message
-        const errorMessage = errorData.error?.error_user_msg || 
-                           errorData.error?.message || 
-                           `API Error (${response.status}): Failed to send message`;
+        // Show specific error message with more details
+        let errorMessage = 'Failed to send message';
+        
+        if (errorData.error) {
+          if (errorData.error.error_user_title) {
+            errorMessage = errorData.error.error_user_title;
+          } else if (errorData.error.message) {
+            errorMessage = errorData.error.message;
+          }
+          
+          // Add specific troubleshooting for common errors
+          if (errorData.error.code === 190) {
+            errorMessage += ' - Please update your access token in WhatsApp Config';
+          } else if (errorData.error.code === 131026) {
+            errorMessage += ' - Phone number not registered with WhatsApp Business';
+          } else if (errorData.error.code === 131047) {
+            errorMessage += ' - Message template required for this recipient';
+          }
+        }
         
         throw new Error(errorMessage);
       }
@@ -252,7 +266,7 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
       console.error('Send message error:', error);
       toast({
         title: "Message Failed",
-        description: error.message || "Failed to send message. Please check your WhatsApp configuration.",
+        description: error.message || "Failed to send message. Please check your WhatsApp configuration and ensure your access token is valid.",
         variant: "destructive",
       });
     } finally {

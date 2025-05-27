@@ -8,6 +8,8 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
+  console.log(`Webhook received: ${req.method} ${req.url}`)
+  
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -26,43 +28,66 @@ serve(async (req) => {
       const token = url.searchParams.get('hub.verify_token')
       const challenge = url.searchParams.get('hub.challenge')
       
-      console.log('Webhook verification:', { mode, token, challenge })
+      console.log('Webhook verification attempt:', { 
+        mode, 
+        token, 
+        challenge,
+        expectedToken: 'whatsapp_webhook_verify_token'
+      })
       
       const VERIFY_TOKEN = 'whatsapp_webhook_verify_token'
       
       if (mode === 'subscribe' && token === VERIFY_TOKEN) {
-        console.log('Webhook verified successfully')
+        console.log('Webhook verified successfully - returning challenge:', challenge)
         return new Response(challenge, { 
           status: 200,
-          headers: { 'Content-Type': 'text/plain' }
+          headers: { 
+            'Content-Type': 'text/plain',
+            ...corsHeaders 
+          }
         })
       } else {
-        console.log('Webhook verification failed')
-        return new Response('Forbidden', { status: 403 })
+        console.log('Webhook verification failed:', { 
+          modeMatch: mode === 'subscribe',
+          tokenMatch: token === VERIFY_TOKEN,
+          receivedMode: mode,
+          receivedToken: token
+        })
+        return new Response('Verification failed', { 
+          status: 403,
+          headers: corsHeaders
+        })
       }
     }
 
     if (req.method === 'POST') {
       const body = await req.json()
-      console.log('Webhook received:', JSON.stringify(body, null, 2))
+      console.log('Webhook POST received:', JSON.stringify(body, null, 2))
 
       // Process WhatsApp webhook events
       if (body.object === 'whatsapp_business_account') {
         for (const entry of body.entry || []) {
+          console.log('Processing entry:', entry.id)
+          
           for (const change of entry.changes || []) {
+            console.log('Processing change:', change.field)
+            
             if (change.field === 'messages') {
               const value = change.value
+              console.log('Message value received:', JSON.stringify(value, null, 2))
               
               // Handle incoming messages
-              if (value.messages) {
+              if (value.messages && value.messages.length > 0) {
                 for (const message of value.messages) {
+                  console.log('Processing incoming message:', message.id)
                   await handleIncomingMessage(supabaseClient, message, value)
                 }
               }
               
               // Handle message status updates (delivered, read, etc.)
-              if (value.statuses) {
+              if (value.statuses && value.statuses.length > 0) {
                 for (const status of value.statuses) {
+                  console.log('Processing message status:', status.id, status.status)
                   await handleMessageStatus(supabaseClient, status)
                 }
               }
@@ -77,10 +102,13 @@ serve(async (req) => {
       })
     }
 
-    return new Response('Method not allowed', { status: 405 })
+    return new Response('Method not allowed', { 
+      status: 405,
+      headers: corsHeaders
+    })
   } catch (error) {
     console.error('Webhook error:', error)
-    return new Response('Internal Server Error', { 
+    return new Response(`Internal Server Error: ${error.message}`, { 
       status: 500,
       headers: corsHeaders
     })
@@ -88,11 +116,11 @@ serve(async (req) => {
 })
 
 async function handleIncomingMessage(supabaseClient: any, message: any, value: any) {
-  console.log('Processing incoming message:', message)
+  console.log('Processing incoming message:', JSON.stringify(message, null, 2))
   
   try {
     const phoneNumber = message.from
-    const messageContent = message.text?.body || message.type
+    const messageContent = message.text?.body || message.type || 'Media message'
     
     // Find the user based on the phone number ID from the webhook metadata
     const phoneNumberId = value.metadata?.phone_number_id
@@ -104,11 +132,11 @@ async function handleIncomingMessage(supabaseClient: any, message: any, value: a
     }
 
     // Find user by their WhatsApp phone number ID
-    let { data: userProfile, error: userError } = await supabaseClient
+    const { data: userProfile, error: userError } = await supabaseClient
       .from('profiles')
       .select('*')
       .eq('whatsapp_phone_number_id', phoneNumberId)
-      .single()
+      .maybeSingle()
     
     if (userError) {
       console.error('Error finding user by phone_number_id:', userError)
@@ -128,9 +156,14 @@ async function handleIncomingMessage(supabaseClient: any, message: any, value: a
       .select('*')
       .eq('whatsapp_id', phoneNumber)
       .eq('user_id', userProfile.id)
-      .single()
+      .maybeSingle()
     
-    if (contactError && contactError.code === 'PGRST116') {
+    if (!contact && contactError?.code !== 'PGRST116') {
+      console.error('Error finding contact:', contactError)
+      return
+    }
+    
+    if (!contact) {
       // Contact doesn't exist, create it
       const { data: newContact, error: createError } = await supabaseClient
         .from('whatsapp_contacts')
@@ -149,9 +182,6 @@ async function handleIncomingMessage(supabaseClient: any, message: any, value: a
       }
       contact = newContact
       console.log('Created new contact:', contact.id)
-    } else if (contactError) {
-      console.error('Error finding contact:', contactError)
-      return
     }
     
     // Store the message
@@ -179,7 +209,7 @@ async function handleIncomingMessage(supabaseClient: any, message: any, value: a
 }
 
 async function handleMessageStatus(supabaseClient: any, status: any) {
-  console.log('Processing message status:', status)
+  console.log('Processing message status:', JSON.stringify(status, null, 2))
   
   try {
     const { error } = await supabaseClient
