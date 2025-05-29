@@ -9,6 +9,7 @@ const corsHeaders = {
 
 serve(async (req) => {
   console.log(`Webhook received: ${req.method} ${req.url}`)
+  console.log('Request headers:', Object.fromEntries(req.headers.entries()))
   
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -32,13 +33,15 @@ serve(async (req) => {
         mode, 
         token, 
         challenge,
-        expectedToken: 'whatsapp_webhook_verify_token'
+        expectedToken: 'whatsapp_webhook_verify_token',
+        url: req.url,
+        searchParams: Object.fromEntries(url.searchParams.entries())
       })
       
       const VERIFY_TOKEN = 'whatsapp_webhook_verify_token'
       
       if (mode === 'subscribe' && token === VERIFY_TOKEN) {
-        console.log('Webhook verified successfully - returning challenge:', challenge)
+        console.log('✅ Webhook verified successfully - returning challenge:', challenge)
         return new Response(challenge, { 
           status: 200,
           headers: { 
@@ -47,11 +50,12 @@ serve(async (req) => {
           }
         })
       } else {
-        console.log('Webhook verification failed:', { 
+        console.log('❌ Webhook verification failed:', { 
           modeMatch: mode === 'subscribe',
           tokenMatch: token === VERIFY_TOKEN,
           receivedMode: mode,
-          receivedToken: token
+          receivedToken: token,
+          expectedToken: VERIFY_TOKEN
         })
         return new Response('Verification failed', { 
           status: 403,
@@ -62,24 +66,24 @@ serve(async (req) => {
 
     if (req.method === 'POST') {
       const body = await req.json()
-      console.log('Webhook POST received:', JSON.stringify(body, null, 2))
+      console.log('📨 Webhook POST received:', JSON.stringify(body, null, 2))
 
       // Process WhatsApp webhook events
       if (body.object === 'whatsapp_business_account') {
         for (const entry of body.entry || []) {
-          console.log('Processing entry:', entry.id)
+          console.log('📋 Processing entry:', entry.id)
           
           for (const change of entry.changes || []) {
-            console.log('Processing change:', change.field)
+            console.log('🔄 Processing change:', change.field)
             
             if (change.field === 'messages') {
               const value = change.value
-              console.log('Message value received:', JSON.stringify(value, null, 2))
+              console.log('💬 Message value received:', JSON.stringify(value, null, 2))
               
               // Handle incoming messages
               if (value.messages && value.messages.length > 0) {
                 for (const message of value.messages) {
-                  console.log('Processing incoming message:', message.id)
+                  console.log('📥 Processing incoming message:', message.id)
                   await handleIncomingMessage(supabaseClient, message, value)
                 }
               }
@@ -87,7 +91,7 @@ serve(async (req) => {
               // Handle message status updates (delivered, read, etc.)
               if (value.statuses && value.statuses.length > 0) {
                 for (const status of value.statuses) {
-                  console.log('Processing message status:', status.id, status.status)
+                  console.log('📊 Processing message status:', status.id, status.status)
                   await handleMessageStatus(supabaseClient, status)
                 }
               }
@@ -107,7 +111,7 @@ serve(async (req) => {
       headers: corsHeaders
     })
   } catch (error) {
-    console.error('Webhook error:', error)
+    console.error('💥 Webhook error:', error)
     return new Response(`Internal Server Error: ${error.message}`, { 
       status: 500,
       headers: corsHeaders
@@ -116,7 +120,7 @@ serve(async (req) => {
 })
 
 async function handleIncomingMessage(supabaseClient: any, message: any, value: any) {
-  console.log('Processing incoming message:', JSON.stringify(message, null, 2))
+  console.log('📨 Processing incoming message:', JSON.stringify(message, null, 2))
   
   try {
     const phoneNumber = message.from
@@ -124,10 +128,10 @@ async function handleIncomingMessage(supabaseClient: any, message: any, value: a
     
     // Find the user based on the phone number ID from the webhook metadata
     const phoneNumberId = value.metadata?.phone_number_id
-    console.log('Looking for user with phone_number_id:', phoneNumberId)
+    console.log('🔍 Looking for user with phone_number_id:', phoneNumberId)
     
     if (!phoneNumberId) {
-      console.error('No phone_number_id found in webhook metadata')
+      console.error('❌ No phone_number_id found in webhook metadata')
       return
     }
 
@@ -139,16 +143,16 @@ async function handleIncomingMessage(supabaseClient: any, message: any, value: a
       .maybeSingle()
     
     if (userError) {
-      console.error('Error finding user by phone_number_id:', userError)
+      console.error('❌ Error finding user by phone_number_id:', userError)
       return
     }
 
     if (!userProfile) {
-      console.error('No user found with phone_number_id:', phoneNumberId)
+      console.error('❌ No user found with phone_number_id:', phoneNumberId)
       return
     }
 
-    console.log('Found user profile:', userProfile.id)
+    console.log('✅ Found user profile:', userProfile.id)
     
     // Find or create contact
     let { data: contact, error: contactError } = await supabaseClient
@@ -159,7 +163,7 @@ async function handleIncomingMessage(supabaseClient: any, message: any, value: a
       .maybeSingle()
     
     if (!contact && contactError?.code !== 'PGRST116') {
-      console.error('Error finding contact:', contactError)
+      console.error('❌ Error finding contact:', contactError)
       return
     }
     
@@ -177,11 +181,11 @@ async function handleIncomingMessage(supabaseClient: any, message: any, value: a
         .single()
       
       if (createError) {
-        console.error('Error creating contact:', createError)
+        console.error('❌ Error creating contact:', createError)
         return
       }
       contact = newContact
-      console.log('Created new contact:', contact.id)
+      console.log('✅ Created new contact:', contact.id)
     }
     
     // Store the message
@@ -199,17 +203,17 @@ async function handleIncomingMessage(supabaseClient: any, message: any, value: a
       })
     
     if (messageError) {
-      console.error('Error storing message:', messageError)
+      console.error('❌ Error storing message:', messageError)
     } else {
-      console.log('Message stored successfully for user:', userProfile.id)
+      console.log('✅ Message stored successfully for user:', userProfile.id)
     }
   } catch (error) {
-    console.error('Error handling incoming message:', error)
+    console.error('💥 Error handling incoming message:', error)
   }
 }
 
 async function handleMessageStatus(supabaseClient: any, status: any) {
-  console.log('Processing message status:', JSON.stringify(status, null, 2))
+  console.log('📊 Processing message status:', JSON.stringify(status, null, 2))
   
   try {
     const { error } = await supabaseClient
@@ -221,11 +225,11 @@ async function handleMessageStatus(supabaseClient: any, status: any) {
       .eq('message_id', status.id)
     
     if (error) {
-      console.error('Error updating message status:', error)
+      console.error('❌ Error updating message status:', error)
     } else {
-      console.log('Message status updated:', status.status)
+      console.log('✅ Message status updated:', status.status)
     }
   } catch (error) {
-    console.error('Error handling message status:', error)
+    console.error('💥 Error handling message status:', error)
   }
 }

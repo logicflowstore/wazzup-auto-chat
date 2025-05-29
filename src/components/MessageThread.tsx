@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -101,12 +102,37 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
     }
   };
 
+  const formatPhoneNumber = (phone: string): string => {
+    // Remove all non-digit characters
+    let cleaned = phone.replace(/\D/g, '');
+    
+    // If starts with +, remove it
+    if (phone.startsWith('+')) {
+      cleaned = phone.substring(1).replace(/\D/g, '');
+    }
+    
+    // If it's 10 digits, assume it's an Indian number and add 91
+    if (cleaned.length === 10) {
+      cleaned = '91' + cleaned;
+    }
+    
+    // Ensure it doesn't start with 0
+    if (cleaned.startsWith('0')) {
+      cleaned = cleaned.substring(1);
+    }
+    
+    console.log('📞 Phone number formatting:', { original: phone, formatted: cleaned });
+    return cleaned;
+  };
+
   const sendMessage = async () => {
     if (!newMessage.trim() || !contact || sending) return;
 
     setSending(true);
+    let messageData: any = null;
+
     try {
-      console.log('Starting message send process...');
+      console.log('🚀 Starting message send process...');
       
       // Get user's WhatsApp configuration
       const { data: profile, error: profileError } = await supabase
@@ -116,11 +142,11 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
         .single();
 
       if (profileError) {
-        console.error('Profile fetch error:', profileError);
+        console.error('❌ Profile fetch error:', profileError);
         throw new Error('Failed to fetch user profile');
       }
 
-      console.log('Profile data:', { 
+      console.log('👤 Profile data:', { 
         hasAccessToken: !!profile?.whatsapp_access_token, 
         hasPhoneNumberId: !!profile?.whatsapp_phone_number_id 
       });
@@ -135,22 +161,17 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
       }
 
       // Format phone number properly for WhatsApp API
-      let formattedPhone = contact.whatsapp_id || contact.phone_number;
-      if (formattedPhone) {
-        // Remove all non-digit characters and any leading + sign
-        formattedPhone = formattedPhone.replace(/\D/g, '');
-        
-        // Ensure it has country code - default to India (91) if 10 digits
-        if (!formattedPhone.startsWith('91') && formattedPhone.length === 10) {
-          formattedPhone = '91' + formattedPhone;
-        }
+      const formattedPhone = formatPhoneNumber(contact.whatsapp_id || contact.phone_number || '');
+      
+      if (!formattedPhone) {
+        throw new Error('Invalid phone number format');
       }
 
-      console.log('Sending to phone:', formattedPhone);
-      console.log('Message content:', newMessage);
+      console.log('📱 Sending to phone:', formattedPhone);
+      console.log('💬 Message content:', newMessage);
 
       // Store message in database first
-      const { data: messageData, error: dbError } = await supabase
+      const { data: dbMessage, error: dbError } = await supabase
         .from('whatsapp_messages')
         .insert({
           user_id: user?.id,
@@ -165,27 +186,33 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
         .single();
 
       if (dbError) {
-        console.error('Database error:', dbError);
+        console.error('❌ Database error:', dbError);
         throw new Error('Failed to store message in database');
       }
 
-      console.log('Message stored in database:', messageData);
+      messageData = dbMessage;
+      console.log('✅ Message stored in database:', messageData);
 
       // Update UI immediately
       setMessages(prev => [...prev, messageData]);
       setNewMessage('');
 
-      // Prepare WhatsApp API request - Use the latest API version
+      // Use the official Meta Graph API v21.0
       const whatsappApiUrl = `https://graph.facebook.com/v21.0/${profile.whatsapp_phone_number_id}/messages`;
       const requestBody = {
         messaging_product: 'whatsapp',
+        recipient_type: 'individual',
         to: formattedPhone,
-        text: { body: newMessage }
+        type: 'text',
+        text: { 
+          preview_url: false,
+          body: newMessage 
+        }
       };
 
-      console.log('WhatsApp API URL:', whatsappApiUrl);
-      console.log('Request body:', JSON.stringify(requestBody, null, 2));
-      console.log('Access token (first 10 chars):', profile.whatsapp_access_token.substring(0, 10) + '...');
+      console.log('🌐 WhatsApp API URL:', whatsappApiUrl);
+      console.log('📤 Request body:', JSON.stringify(requestBody, null, 2));
+      console.log('🔑 Access token (first 20 chars):', profile.whatsapp_access_token.substring(0, 20) + '...');
 
       // Send via WhatsApp API
       const response = await fetch(whatsappApiUrl, {
@@ -197,10 +224,11 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
         body: JSON.stringify(requestBody)
       });
 
-      console.log('WhatsApp API response status:', response.status);
+      console.log('📡 WhatsApp API response status:', response.status);
+      console.log('📡 WhatsApp API response headers:', Object.fromEntries(response.headers.entries()));
       
       const responseText = await response.text();
-      console.log('WhatsApp API response text:', responseText);
+      console.log('📄 WhatsApp API response text:', responseText);
 
       if (!response.ok) {
         let errorData;
@@ -210,7 +238,7 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
           errorData = { error: { message: responseText } };
         }
         
-        console.error('WhatsApp API error response:', errorData);
+        console.error('❌ WhatsApp API error response:', errorData);
         
         // Update message status to failed
         await supabase
@@ -230,11 +258,22 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
           
           // Add specific troubleshooting for common errors
           if (errorData.error.code === 190) {
-            errorMessage += ' - Please update your access token in WhatsApp Config';
+            errorMessage += ' - Access token expired. Please update your token in WhatsApp Config';
           } else if (errorData.error.code === 131026) {
             errorMessage += ' - Phone number not registered with WhatsApp Business';
           } else if (errorData.error.code === 131047) {
-            errorMessage += ' - Message template required for this recipient';
+            errorMessage += ' - Message template required for this recipient. Try messaging from WhatsApp first.';
+          } else if (errorData.error.code === 131051) {
+            errorMessage += ' - User phone number not valid';
+          } else if (errorData.error.code === 131052) {
+            errorMessage += ' - User is not a WhatsApp user';
+          } else if (errorData.error.code === 100) {
+            errorMessage += ' - Invalid phone number or access token';
+          }
+          
+          // Add the error code for debugging
+          if (errorData.error.code) {
+            errorMessage += ` (Error code: ${errorData.error.code})`;
           }
         }
         
@@ -242,9 +281,9 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
       }
 
       const responseData = JSON.parse(responseText);
-      console.log('WhatsApp API success response:', responseData);
+      console.log('✅ WhatsApp API success response:', responseData);
       
-      // Update message status to sent
+      // Update message status to sent with WhatsApp message ID
       await supabase
         .from('whatsapp_messages')
         .update({ 
@@ -263,10 +302,19 @@ const MessageThread = ({ contact, onContactUpdate }: MessageThreadProps) => {
         onContactUpdate();
       }
     } catch (error: any) {
-      console.error('Send message error:', error);
+      console.error('💥 Send message error:', error);
+      
+      // If we created a message record, mark it as failed
+      if (messageData) {
+        await supabase
+          .from('whatsapp_messages')
+          .update({ status: 'failed' })
+          .eq('id', messageData.id);
+      }
+      
       toast({
         title: "Message Failed",
-        description: error.message || "Failed to send message. Please check your WhatsApp configuration and ensure your access token is valid.",
+        description: error.message || "Failed to send message. Please check your WhatsApp configuration and phone number format.",
         variant: "destructive",
       });
     } finally {
