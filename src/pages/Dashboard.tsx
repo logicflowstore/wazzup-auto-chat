@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { MessageSquare, Settings, Send, LogOut, Inbox, Copy, ExternalLink } from 'lucide-react';
 import ChatInterface from '@/components/ChatInterface';
 import InboxInterface from '@/components/InboxInterface';
+import WhatsAppMessageTester from '@/components/WhatsAppMessageTester';
 
 interface Profile {
   id: string;
@@ -228,6 +229,15 @@ const Dashboard = () => {
             Live Chat
           </button>
           <button
+            onClick={() => setActiveTab('test')}
+            className={`w-full flex items-center px-4 py-2 rounded-lg font-medium ${
+              activeTab === 'test' ? 'text-green-600 bg-green-50' : 'text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Send className="w-5 h-5 mr-3" />
+            Test Messages
+          </button>
+          <button
             onClick={() => setActiveTab('settings')}
             className={`w-full flex items-center px-4 py-2 rounded-lg font-medium ${
               activeTab === 'settings' ? 'text-green-600 bg-green-50' : 'text-gray-700 hover:bg-gray-50'
@@ -261,6 +271,7 @@ const Dashboard = () => {
           <h2 className="text-2xl font-bold text-gray-900">
             {activeTab === 'inbox' && 'Inbox'}
             {activeTab === 'chat' && 'Live Chat'}
+            {activeTab === 'test' && 'Message Testing'}
             {activeTab === 'settings' && 'WhatsApp Configuration'}
             {activeTab === 'send' && 'Send WhatsApp Message'}
           </h2>
@@ -277,6 +288,42 @@ const Dashboard = () => {
           {activeTab === 'chat' && (
             <div className="h-full">
               <ChatInterface />
+            </div>
+          )}
+
+          {activeTab === 'test' && (
+            <div className="space-y-6">
+              <WhatsAppMessageTester />
+              
+              <Card className="max-w-2xl">
+                <CardHeader>
+                  <CardTitle>Webhook Validation Issues</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4 text-sm">
+                    <div className="bg-yellow-50 p-4 rounded-lg">
+                      <h4 className="font-medium text-yellow-900 mb-2">Common Webhook Validation Problems:</h4>
+                      <ul className="text-yellow-800 space-y-1 list-disc list-inside">
+                        <li><strong>HTTPS Required:</strong> Facebook requires HTTPS webhooks</li>
+                        <li><strong>Verify Token Mismatch:</strong> Must match exactly "whatsapp_webhook_verify_token"</li>
+                        <li><strong>Response Format:</strong> Must return the challenge parameter as plain text</li>
+                        <li><strong>Response Time:</strong> Must respond within 20 seconds</li>
+                        <li><strong>Status Code:</strong> Must return 200 status code</li>
+                      </ul>
+                    </div>
+                    
+                    <div className="bg-blue-50 p-4 rounded-lg">
+                      <h4 className="font-medium text-blue-900 mb-2">Check These Settings:</h4>
+                      <ul className="text-blue-800 space-y-1 list-disc list-inside">
+                        <li>Webhook URL: https://qionpicrrboyktnsilgg.supabase.co/functions/v1/whatsapp-webhook</li>
+                        <li>Verify Token: whatsapp_webhook_verify_token</li>
+                        <li>Subscribed Fields: messages</li>
+                        <li>App must be in Live mode (not Development)</li>
+                      </ul>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           )}
 
